@@ -1,0 +1,12 @@
+node_modules
+.env*
+!.env.example
+.DS_Store
+.vscode/
+.claude/
+*.log
+dist/
+build/
+coverage/
+*.local
+
