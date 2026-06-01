@@ -10,3 +10,6 @@ build/
 coverage/
 *.local
 
+
+# Learning notes live in a separate private repo (kaafila-notes)
+learning/
