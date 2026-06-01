@@ -1,3 +1,6 @@
+name: weeknd-pro
+#why we rename: Without an explicit name, compose uses the directory name (infra) as the project prefix which describes the directory ,not the project.
+#What happend before when name was not added: Containers got named as infra-auth-db-1 etc. Setting then name as weekend-pro makes them weekend-pro-auth-db-1 which is self documenting
 services:
   auth-db:
     image: postgres:16
@@ -7,6 +10,11 @@ services:
       - '5432:5432'
     volumes:
       - auth-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', "pg_isready -U auth_user -d auth_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
   
   auth-service:
@@ -16,7 +24,8 @@ services:
     ports:
       - '3001:3001'
     depends_on:
-      - auth-db
+      auth-db:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:
