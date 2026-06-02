@@ -6,6 +6,7 @@ import { asyncHandler } from "./utils/asyncHandler.js";
 import { ApiError } from "./utils/ApiError.js";
 import { ApiResponse } from "./utils/ApiResponse.js";
 import { errorHandler } from "./middleware/errorHandler.js";
+import { authenticate } from "./middleware/auth.middleware.js";
 
 const app = express();
 app.use(express.json());
@@ -161,7 +162,47 @@ app.post(
     const safeUser = { id: user.id, email: user.email };
     res
       .status(200)
-      .json(new ApiResponse(200, { token, user: safeUser }, "Login successful"));
+      .json(
+        new ApiResponse(200, { token, user: safeUser }, "Login successful"),
+      );
+  }),
+);
+
+/**
+ * Return the currently authenticated user's profile.
+ * @route GET /me
+ * @middleware authenticate - Verifies the JWT and sets req.userId.
+ * @returns {200} { user } on success.
+ * @throws {ApiError} 401 - Missing/invalid token (from authenticate).
+ * @throws {ApiError} 404 - Authenticated user no longer exists.
+ */
+app.get(
+  "/me",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    /** 1. req.userId was set + verified by the authenticate middleware */
+    const result = await query(
+      "SELECT id, email, created_at FROM users WHERE id=$1",
+      [req.userId],
+    );
+
+    /** 2. Row is undefined if the user was deleted after the token was issued */
+    const user = result.rows[0];
+
+    if (!user) {
+      throw new ApiError(404, "user not found");
+    }
+
+    /** 3. Respond with the consistent ApiResponse shape */
+    res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          user,
+        },
+        "User fetched successfully",
+      ),
+    );
   }),
 );
 
