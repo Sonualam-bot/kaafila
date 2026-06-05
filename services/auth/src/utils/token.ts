@@ -54,6 +54,7 @@ export const signRefreshToken = (userId: string) => {
     process.env.REFRESH_TOKEN_SECRET as string,
     {
       expiresIn: `${REFRESH_TTL_DAYS}d`,
+      jwtid: crypto.randomUUID(), // ← unique per token → unique hash, no collisions
     },
   );
   const expiresAt = new Date(

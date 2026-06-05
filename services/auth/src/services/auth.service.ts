@@ -18,6 +18,36 @@ import {
 } from "../repositories/refresh-tokens.repository.js";
 
 /**
+ * A throwaway bcrypt hash, compared against when a login email isn't found, so
+ * login spends roughly the same time whether or not the user exists (see login()
+ * for why). Computed ONCE at startup with hashSync — never per request.
+ */
+const DUMMY_HASH = bcrypt.hashSync("dummy-password-never-matches", 12);
+
+/**
+ * Lightweight sanity check that a string *looks like* an email address.
+ * Deliberately NOT a full RFC 5322 validator (those are enormous and still
+ * can't prove an address is real) — it just rejects obviously-malformed input.
+ * The only true validation of an email is sending a confirmation link to it.
+ *
+ * Regex `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`, read left to right:
+ *   - `^`        anchor to the start of the string
+ *   - `[^\s@]+`  local part: one or more chars that are NOT whitespace (`\s`) or `@`
+ *   - `@`        exactly one literal `@`
+ *   - `[^\s@]+`  domain: one or more non-whitespace, non-`@` chars
+ *   - `\.`       a literal dot (escaped — a bare `.` means "any char")
+ *   - `[^\s@]+`  TLD: one or more non-whitespace, non-`@` chars
+ *   - `$`        anchor to the end of the string
+ *
+ * Passes: `a@b.co`. Fails: `a@b` (no dot+TLD), `a b@c.com` (space), `a@@b.co` (two `@`).
+ *
+ * @param email - The candidate email string.
+ * @returns `true` if it has the basic `local@domain.tld` shape.
+ */
+export const isValidEmail = (email: string): boolean =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+/**
  * Shared presence/length checks — runs before any DB or hashing work.
  * Presence FIRST, before touching .length on possibly-undefined values
  * (else those throw a 500 instead of a clean 400).
@@ -29,6 +59,10 @@ const validateCredentials = (email: string, password: string) => {
   if (!email || !password) {
     throw new ApiError(400, "email and password are required");
   }
+
+  if (!isValidEmail(email.trim()))
+    throw new ApiError(400, "invalid email format");
+
   if (password.length < 8) {
     throw new ApiError(400, "password must be at least 8 characters");
   }
@@ -103,12 +137,17 @@ export const login = async (email: string, password: string) => {
   const normalizedEmail = email.trim().toLowerCase();
   const user = await findByEmail({ email: normalizedEmail });
 
-  /** 3. Same generic message whether the user is missing or the password is wrong */
-  if (!user) {
-    throw new ApiError(401, "invalid credentials");
-  }
-
-  if (!(await bcrypt.compare(password, user.password_hash))) {
+  /**
+   * 3. Verify the password in a TIMING-SAFE way, then apply ONE generic 401.
+   * Always run bcrypt.compare — against the real hash if the user exists, or
+   * DUMMY_HASH if not — so an unknown email doesn't respond faster than a known
+   * one. bcrypt is intentionally slow; short-circuiting on a missing user would
+   * leak which emails exist via response time (timing-based user enumeration).
+   * The single generic message covers both failure modes for the same reason.
+   */
+  const hashToCompare = user ? user.password_hash : DUMMY_HASH;
+  const passwordMatches = await bcrypt.compare(password, hashToCompare);
+  if (!user || !passwordMatches) {
     throw new ApiError(401, "invalid credentials");
   }
 
