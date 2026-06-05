@@ -4,7 +4,9 @@ import {
   signup as signupUser,
   login as loginUser,
   getProfile,
+  refreshAccessToken,
 } from "../services/auth.service.js";
+import { ApiError } from "../utils/ApiError.js";
 
 /**
  * Register a new user.
@@ -49,4 +51,23 @@ export const getMe = asyncHandler(async (req, res) => {
   res
     .status(200)
     .json(new ApiResponse(200, { user }, "User fetched successfully"));
+});
+
+/**
+ * Exchange a valid refresh token for a fresh access token.
+ * @route POST /refresh
+ * @param {string} req.body.refreshToken - The refresh token issued at login/signup.
+ * @returns {200} { accessToken }
+ * @throws {ApiError} 400 - refreshToken missing from the request body.
+ * @throws {ApiError} 401 - refreshToken invalid, expired, or revoked (from the service).
+ */
+export const refresh = asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    throw new ApiError(400, "refresh token not found");
+  }
+
+  const result = await refreshAccessToken(refreshToken);
+  res.status(200).json(new ApiResponse(200, result, "Token refreshed"));
 });

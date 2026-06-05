@@ -5,7 +5,16 @@ import {
   findById,
 } from "../repositories/user.repository.js";
 import { ApiError } from "../utils/ApiError.js";
-import { signAccessToken } from "../utils/token.js";
+import {
+  hashToken,
+  signAccessToken,
+  signRefreshToken,
+  verifyRefreshToken,
+} from "../utils/token.js";
+import {
+  findRefreshToken,
+  storeRefreshToken,
+} from "../repositories/refresh-tokens.repository.js";
 
 /**
  * Shared presence/length checks — runs before any DB or hashing work.
@@ -27,11 +36,22 @@ const validateCredentials = (email: string, password: string) => {
   }
 };
 
+const issueTokens = async (userId: string) => {
+  const accessToken = signAccessToken(userId);
+  const { token: refreshToken, expiresAt } = signRefreshToken(userId);
+  await storeRefreshToken({
+    userId,
+    tokenHash: hashToken(refreshToken),
+    expiresAt,
+  });
+  return { accessToken, refreshToken };
+};
+
 /**
  * Register a new user: validate → hash → persist (via repo) → issue a JWT.
  * @param {string} email    - User email (normalized to lowercase before storage).
  * @param {string} password - Plaintext password (8–72 chars).
- * @returns { token, user } on success.
+ * @returns { accessToken, refreshToken, user } on success.
  * @throws {ApiError} 400 - Missing/invalid fields.
  * @throws {ApiError} 409 - Email already registered.
  */
@@ -58,10 +78,10 @@ export const signup = async (email: string, password: string) => {
   }
 
   /** 5. Sign a short-lived JWT carrying the user's id */
-  const token = signAccessToken(user.id);
+  const tokens = await issueTokens(user.id);
 
   /** 6. Return the token + the (password_hash-free) user row */
-  return { token, user };
+  return { ...tokens, user };
 };
 
 /**
@@ -70,7 +90,7 @@ export const signup = async (email: string, password: string) => {
  * emails exist (prevents user enumeration).
  * @param {string} email    - User email (normalized to match storage).
  * @param {string} password - Plaintext password to verify.
- * @returns { token, user } on success (user is stripped of password_hash).
+ * @returns { accessToken, refreshToken, user } on success (user is stripped of password_hash).
  * @throws {ApiError} 400 - Missing/invalid fields.
  * @throws {ApiError} 401 - Invalid credentials (generic).
  */
@@ -92,11 +112,11 @@ export const login = async (email: string, password: string) => {
   }
 
   /** 4. Sign a JWT (same shape as signup) */
-  const token = signAccessToken(user.id);
+  const tokens = await issueTokens(user.id);
 
   /** 5. Strip password_hash before returning to the caller */
   const safeUser = { id: user.id, email: user.email };
-  return { token, user: safeUser };
+  return { ...tokens, user: safeUser };
 };
 
 /**
@@ -112,4 +132,32 @@ export const getProfile = async (userId: string) => {
     throw new ApiError(404, "user not found");
   }
   return user;
+};
+
+/**
+ * Exchange a valid refresh token for a fresh access token.
+ * Validated twice: cryptographically (signature + expiry) AND against the DB,
+ * so a revoked/logged-out token is rejected even while still unexpired.
+ * @param refreshToken - The raw refresh JWT supplied by the client.
+ * @returns A new short-lived access token: { accessToken }.
+ * @throws {ApiError} 401 - Token invalid, expired, or no longer stored (revoked).
+ */
+export const refreshAccessToken = async (refreshToken: string) => {
+  /** Gate 1 — validity (signature + expiry). ONLY this goes in the try. */
+  try {
+    verifyRefreshToken(refreshToken);
+  } catch (error) {
+    throw new ApiError(401, "invalid refresh token");
+  }
+
+  /** Gate 2 — not revoked: the hash must still exist in the DB. */
+  const tokenHash = hashToken(refreshToken);
+  const stored = await findRefreshToken({ tokenHash });
+  if (!stored) {
+    throw new ApiError(401, "invalid refresh token");
+  }
+
+  /** Mint a fresh access token from the authoritative stored user_id. */
+  const accessToken = signAccessToken(stored.user_id);
+  return { accessToken };
 };

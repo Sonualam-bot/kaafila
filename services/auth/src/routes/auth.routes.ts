@@ -1,5 +1,10 @@
 import { Router } from "express";
-import { getMe, login, signup } from "../controllers/auth.controller.js";
+import {
+  getMe,
+  login,
+  refresh,
+  signup,
+} from "../controllers/auth.controller.js";
 import { authenticate } from "../middleware/auth.middleware.js";
 
 /**
@@ -16,5 +21,12 @@ router.post("/login", login);
  * if the JWT checks out (otherwise it short-circuits with a 401).
  */
 router.get("/me", authenticate, getMe);
+
+/**
+ * Public route: takes a refresh token in the body and returns a new access
+ * token. No `authenticate` — the refresh token IS the credential here (the
+ * access token is expected to be expired by the time this is called).
+ */
+router.post("/refresh", refresh);
 
 export { router };
