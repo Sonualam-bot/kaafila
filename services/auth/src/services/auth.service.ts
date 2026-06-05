@@ -12,6 +12,7 @@ import {
   verifyRefreshToken,
 } from "../utils/token.js";
 import {
+  deleteRefreshToken,
   findRefreshToken,
   storeRefreshToken,
 } from "../repositories/refresh-tokens.repository.js";
@@ -160,4 +161,15 @@ export const refreshAccessToken = async (refreshToken: string) => {
   /** Mint a fresh access token from the authoritative stored user_id. */
   const accessToken = signAccessToken(stored.user_id);
   return { accessToken };
+};
+
+/**
+ * Log a user out by revoking their refresh token: hash the raw token and delete
+ * the stored row, so it can no longer mint access tokens. Idempotent — deleting
+ * a hash that isn't present is a harmless no-op.
+ * @param refreshToken - The raw refresh token to revoke.
+ */
+export const logout = async (refreshToken: string) => {
+  const tokenHash = hashToken(refreshToken);
+  return deleteRefreshToken({ tokenHash });
 };

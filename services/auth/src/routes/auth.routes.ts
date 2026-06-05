@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   getMe,
   login,
+  logout,
   refresh,
   signup,
 } from "../controllers/auth.controller.js";
@@ -28,5 +29,11 @@ router.get("/me", authenticate, getMe);
  * access token is expected to be expired by the time this is called).
  */
 router.post("/refresh", refresh);
+
+/**
+ * Public route: revokes the given refresh token (logout). Like /refresh, no
+ * `authenticate` — the refresh token itself identifies the session to end.
+ */
+router.post("/logout", logout);
 
 export { router };

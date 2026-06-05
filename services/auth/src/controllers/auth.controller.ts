@@ -5,6 +5,7 @@ import {
   login as loginUser,
   getProfile,
   refreshAccessToken,
+  logout as logoutUser,
 } from "../services/auth.service.js";
 import { ApiError } from "../utils/ApiError.js";
 
@@ -70,4 +71,23 @@ export const refresh = asyncHandler(async (req, res) => {
 
   const result = await refreshAccessToken(refreshToken);
   res.status(200).json(new ApiResponse(200, result, "Token refreshed"));
+});
+
+/**
+ * Log out by revoking the supplied refresh token.
+ * @route POST /logout
+ * @param {string} req.body.refreshToken - The refresh token to revoke.
+ * @returns {200} { data: null } - Logged out.
+ * @throws {ApiError} 400 - refreshToken missing from the request body.
+ */
+export const logout = asyncHandler(async (req, res) => {
+  const { refreshToken } = req.body;
+
+  if (!refreshToken) {
+    throw new ApiError(400, "refresh token not found");
+  }
+
+  await logoutUser(refreshToken);
+
+  res.status(200).json(new ApiResponse(200, null, "Logged out"));
 });
