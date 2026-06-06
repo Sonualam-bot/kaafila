@@ -30,13 +30,23 @@ services:
 
   auth-service:
     build: ../services/auth
-    env_file: 
+    env_file:
       - ../.env
     ports:
       - '3001:3001'
     depends_on:
       auth-db:
         condition: service_healthy
+    restart: unless-stopped
+
+  gateway-service:
+    build: ../services/gateway
+    env_file:
+      - ../.env
+    ports:
+      - '3000:3000'
+    depends_on:
+      - auth-service
     restart: unless-stopped
 
 volumes:
