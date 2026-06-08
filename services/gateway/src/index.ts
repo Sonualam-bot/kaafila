@@ -12,12 +12,18 @@ const authProxy = createProxyMiddleware({
   changeOrigin: true,
 });
 
+const tripProxy = createProxyMiddleware({
+  target: process.env.TRIP_SERVICE_URL,
+  changeOrigin: true,
+});
+
 app.use((req, _res, next) => {
   delete req.headers["x-user-id"];
   next();
 });
 app.use("/api/auth/me", verifyToken);
 app.use("/api/auth", authProxy);
+app.use("/api/trips", verifyToken, tripProxy);
 
 app.listen(PORT, () => {
   console.log(`Server is listening on port http://localhost:${PORT} `);
