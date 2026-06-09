@@ -77,6 +77,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  loc-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: loc_user
+      POSTGRES_PASSWORD: dev_password_123
+      POSTGRES_DB: loc_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - loc-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loc_user -d loc_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   auth-db-data:
   trip-db-data:
+  loc-db-data:

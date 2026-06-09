@@ -42,6 +42,12 @@ function haversineDistanceMeters(
   return EARTH_RADIUS_METERS * angularDistance;
 }
 
+/**
+ * Median of a list of numbers — used for the group centroid (per axis) because
+ * it's robust to outliers: unlike the mean, one extreme value can't drag it.
+ * For an even count, returns the average of the two middle values.
+ * Note: sorts with a numeric comparator (JS default sort is lexicographic).
+ */
 const median = (nums: number[]): number => {
   const sorted = [...nums].sort((a, b) => a - b); // ← numeric sort, see gotcha
   const mid = Math.floor(sorted.length / 2);
