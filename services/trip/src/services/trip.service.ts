@@ -5,7 +5,9 @@ import {
   findMembers,
   findTripById,
   findTripsForUser,
+  updateTripStatus,
 } from "../repositories/trip.repository.js";
+import { redis } from "../redis.js";
 
 /**
  * Create a trip and enroll its creator as the first member (role "host").
@@ -76,4 +78,41 @@ export const joinTrip = async ({
   }
 
   return findMembers(tripId);
+};
+
+/**
+ * End a trip. Only the host may do this.
+ *
+ * @throws ApiError 404 if no trip with that id exists.
+ * @throws ApiError 403 if the requester is not the trip's host.
+ * @returns the updated trip row (status now "ended").
+ */
+export const endTrip = async ({
+  tripId,
+  userId,
+}: {
+  tripId: string;
+  userId: string;
+}) => {
+  const trip = await findTripById(tripId);
+
+  if (!trip) {
+    throw new ApiError(404, "trip not found");
+  }
+
+  if (trip.host_id !== userId) {
+    throw new ApiError(403, "only the host can end the trip");
+  }
+
+  const updated = await updateTripStatus(tripId, "ended");
+  redis
+    .publish(
+      "trip-events",
+      JSON.stringify({
+        type: "trip-ended",
+        tripId,
+      }),
+    )
+    .catch((e) => console.error("publish trip-ended failed:", e));
+  return updated;
 };

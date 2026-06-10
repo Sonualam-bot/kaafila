@@ -81,3 +81,13 @@ export const findMembers = async (tripId: string) => {
   );
   return members.rows as TripMember[];
 };
+
+/** Flip a trip's status and return the updated row (undefined if no such trip). */
+export const updateTripStatus = async (tripId: string, status: string) => {
+  const trip = await query(
+    "UPDATE trips SET status = $2 WHERE id = $1 RETURNING id, host_id, title, status, created_at",
+    [tripId, status],
+  );
+
+  return trip.rows[0] as Trip | undefined;
+};

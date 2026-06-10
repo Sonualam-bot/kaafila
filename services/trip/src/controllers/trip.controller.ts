@@ -5,6 +5,7 @@ import {
   getMyTrips as getMyTripsService,
   getTrip as getTripService,
   joinTrip as joinTripService,
+  endTrip as endTripService,
 } from "../services/trip.service.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
@@ -48,4 +49,16 @@ export const joinTrip = asyncHandler(async (req: Request, res: Response) => {
     userId: req.userId!,
   });
   res.status(200).json(new ApiResponse(200, members, "Joined trip"));
+});
+
+/**
+ * POST /:id/end — end a trip. The trip id comes from the route param and the
+ * requester's id from req.userId. Responds 200 with the updated trip; the
+ * service throws 404 if it's missing and 403 if the requester isn't the host.
+ */
+export const endTrip = asyncHandler(async (req: Request, res: Response) => {
+  const tripId = req.params.id as string;
+  const trip = await endTripService({ tripId, userId: req.userId! });
+
+  res.status(200).json(new ApiResponse(200, trip, "Trip ended"));
 });

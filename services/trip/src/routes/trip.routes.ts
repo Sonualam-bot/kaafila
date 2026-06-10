@@ -7,6 +7,7 @@ import { Router } from "express";
 import { requireUser } from "../middleware/requireUser.js";
 import {
   createTrip,
+  endTrip,
   getMyTrips,
   getTrip,
   joinTrip,
@@ -19,5 +20,6 @@ router.post("/", createTrip);
 router.get("/", getMyTrips);
 router.get("/:id", getTrip);
 router.post("/:id/join", joinTrip);
+router.post("/:id/end", endTrip);
 
 export { router };
