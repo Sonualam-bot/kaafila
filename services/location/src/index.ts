@@ -14,6 +14,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { haversineDistanceMeters, median } from "./utils/geo.js";
 import { query } from "./db.js";
 import { insertPosition } from "./repositories/location.repository.js";
+import { redis, sub } from "./redis.js";
 
 /** A rider is "lagging" if they're more than this many metres from the group centroid. */
 const LAG_THRESHOLD_M = 500;
@@ -30,28 +31,28 @@ const LAG_THRESHOLD_M = 500;
  * Known gap (deferred): lag is undirected — a rider far *ahead* also flags. The
  * directional "behind" check needs the group's travel heading.
  */
-function evaluateTrip(tripId: string) {
-  const room = trips.get(tripId);
-  if (!room) return;
-
+async function evaluateTrip(tripId: string) {
   // only riders who have actually sent a position
-  const located = [...room.entries()].filter(
-    ([, r]) => r.lat != null && r.lng != null,
-  );
-  if (located.length === 0) return;
+  const raw = await redis.hgetall(`trip:${tripId}:positions`);
+  const positions = Object.entries(raw).map(([userId, v]) => {
+    const { lat, lng } = JSON.parse(v);
+    return { userId, lat, lng };
+  });
+
+  if (positions.length === 0) return;
 
   // group centre = per-axis median (robust to one outlier dragging it)
-  const cLat = median(located.map(([, r]) => r.lat!));
-  const cLng = median(located.map(([, r]) => r.lng!));
+  const cLat = median(positions.map((p) => p.lat));
+  const cLng = median(positions.map((p) => p.lng));
 
-  const riders = located.map(([userId, r]) => {
+  const riders = positions.map((p) => {
     const distance = Math.round(
-      haversineDistanceMeters(r.lat!, r.lng!, cLat, cLng),
+      haversineDistanceMeters(p.lat, p.lng, cLat, cLng),
     );
     return {
-      userId,
-      lat: r.lat!,
-      lng: r.lng!,
+      userId: p.userId,
+      lat: p.lat,
+      lng: p.lng,
       distance,
       lagging: distance > LAG_THRESHOLD_M,
     };
@@ -63,12 +64,7 @@ function evaluateTrip(tripId: string) {
     riders,
   });
 
-  // broadcast the snapshot to every open socket in this trip
-  for (const [, r] of room) {
-    if (r.socket.readyState === WebSocket.OPEN) {
-      r.socket.send(payload);
-    }
-  }
+  await redis.publish("positions", payload);
 }
 
 const app = express();
@@ -88,15 +84,8 @@ app.get("/health", (req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-/** A connected rider: their socket + latest known position (unset until first ping). */
-type Rider = {
-  socket: WebSocket;
-  lat?: number;
-  lng?: number;
-};
-
 /** In-memory "rooms": tripId -> (userId -> Rider). Source of live positions (Redis in Wk5). */
-const trips = new Map<string, Map<string, Rider>>();
+const trips = new Map<string, Map<string, WebSocket>>();
 
 /**
  * Per-connection lifecycle. The handshake carries identity: `tripId` (query) and
@@ -116,13 +105,13 @@ wss.on("connection", (socket, req) => {
   }
 
   if (!trips.has(tripId)) trips.set(tripId, new Map());
-  trips.get(tripId)!.set(userId, { socket });
+  trips.get(tripId)!.set(userId, socket);
 
   console.log(
     `ride ${userId} joined trip ${tripId} (size=${trips.get(tripId)!.size}) `,
   );
 
-  socket.on("message", (data) => {
+  socket.on("message", async (data) => {
     let msg: any;
     try {
       msg = JSON.parse(data.toString());
@@ -131,10 +120,11 @@ wss.on("connection", (socket, req) => {
     }
 
     const { lat, lng } = msg;
-    if (typeof lat !== "number" || typeof lng !== "number") return; // ignore bad pings
-    const rider = trips.get(tripId)!.get(userId)!;
-    rider.lat = lat;
-    rider.lng = lng;
+    await redis.hset(
+      `trip:${tripId}:positions`,
+      userId,
+      JSON.stringify({ lat, lng }),
+    );
 
     // persist for replay — fire-and-forget so the socket isn't blocked on the DB
     insertPosition({
@@ -144,7 +134,7 @@ wss.on("connection", (socket, req) => {
       lng,
     }).catch((e) => console.error("persist failed:", e));
 
-    evaluateTrip(tripId);
+    evaluateTrip(tripId).catch((e) => console.error("evaluate failed:", e));
   });
 
   socket.on("close", () => {
@@ -152,9 +142,24 @@ wss.on("connection", (socket, req) => {
     if (trips.get(tripId)?.size === 0) {
       trips.delete(tripId); // drop empty rooms
     }
+    redis
+      .hdel(`trip:${tripId}:positions`, userId)
+      .catch((e) => console.error("hdel failed:", e));
     console.log(`rider ${userId} left trip ${tripId}`);
   });
 });
+
+await sub.subscribe("positions");
+sub.on("message", (_channel, message) => {
+  const { tripId } = JSON.parse(message);
+  const room = trips.get(tripId);
+  if (!room) return;
+  for (const [, socket] of room) {
+    if (socket.readyState === WebSocket.OPEN) socket.send(message);
+  }
+});
+
+sub.on("error", (e) => console.error("Redis sub error: ", e.message));
 
 /**
  * Verify the service can reach Postgres before accepting traffic.
