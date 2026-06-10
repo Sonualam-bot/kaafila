@@ -15,6 +15,7 @@ import { haversineDistanceMeters, median } from "./utils/geo.js";
 import { query } from "./db.js";
 import { insertPosition } from "./repositories/location.repository.js";
 import { redis, sub } from "./redis.js";
+import { isTripMember } from "./clients/trip.client.js";
 
 /** A rider is "lagging" if they're more than this many metres from the group centroid. */
 const LAG_THRESHOLD_M = 500;
@@ -94,16 +95,33 @@ const trips = new Map<string, Map<string, WebSocket>>();
  * On each ping: update the live position, persist it (fire-and-forget), then
  * re-evaluate + broadcast the trip. On close: leave the room.
  */
-wss.on("connection", (socket, req) => {
+wss.on("connection", async (socket, req) => {
+  // 1. Identity from the handshake. req.url is only the path+query
+  //    ("/...?tripId=t1"), so parse it against a throwaway base — we just want
+  //    the query params. userId arrives in the gateway-injected header.
   const url = new URL(req.url ?? "", "http://localhost");
   const tripId = url.searchParams.get("tripId");
   const userId = req.headers["x-user-id"];
 
+  // 2. Authentication gate — no trip or no identity → refuse the connection.
+  //    1008 ("policy violation") is the WebSocket equivalent of an HTTP 401.
   if (!tripId || typeof userId !== "string") {
     socket.close(1008, "tripId (query) and x-user-id (header) required");
     return;
   }
 
+  // 3. Authorization gate — ask the Trip service whether this rider actually
+  //    belongs to this trip (service-to-service call; fails closed). Checked
+  //    BEFORE joining the room, so an unauthorized socket never lands in
+  //    `trips` and never receives a single broadcast.
+  const allowed = await isTripMember(tripId, userId);
+  if (!allowed) {
+    socket.close(1008, "not a member of this trip");
+    return;
+  }
+
+  // 4. Authorized → join this trip's room (this instance's local set of
+  //    sockets for the trip). Create the room map lazily on the first rider.
   if (!trips.has(tripId)) trips.set(tripId, new Map());
   trips.get(tripId)!.set(userId, socket);
 
@@ -111,6 +129,8 @@ wss.on("connection", (socket, req) => {
     `ride ${userId} joined trip ${tripId} (size=${trips.get(tripId)!.size}) `,
   );
 
+  // 5. Each GPS ping from this rider. `data` is raw bytes off the socket
+  //    (a Buffer) → string → JSON; non-JSON frames are ignored.
   socket.on("message", async (data) => {
     let msg: any;
     try {
@@ -120,6 +140,9 @@ wss.on("connection", (socket, req) => {
     }
 
     const { lat, lng } = msg;
+
+    // Write this rider's live position into the SHARED Redis hash. Awaited so
+    // the new position is in place before evaluateTrip reads the group back.
     await redis.hset(
       `trip:${tripId}:positions`,
       userId,
@@ -134,13 +157,17 @@ wss.on("connection", (socket, req) => {
       lng,
     }).catch((e) => console.error("persist failed:", e));
 
+    // recompute the group centroid/lag + publish the snapshot. Not awaited —
+    // runs concurrently with the persist above; errors are logged, not thrown.
     evaluateTrip(tripId).catch((e) => console.error("evaluate failed:", e));
   });
 
+  // 6. Disconnect cleanup: leave the local room AND drop this rider from the
+  //    shared Redis hash, so the centroid stops counting a rider who's gone.
   socket.on("close", () => {
     trips.get(tripId)?.delete(userId);
     if (trips.get(tripId)?.size === 0) {
-      trips.delete(tripId); // drop empty rooms
+      trips.delete(tripId); // drop empty rooms so the map can't grow forever
     }
     redis
       .hdel(`trip:${tripId}:positions`, userId)
@@ -149,11 +176,15 @@ wss.on("connection", (socket, req) => {
   });
 });
 
+// FAN-OUT side. Every instance subscribes to the one "positions" channel.
+// evaluateTrip (on any instance) publishes a snapshot there; here we receive it
+// and relay it to THIS instance's local sockets for that trip. That's what makes
+// the broadcast cross-instance: a ping on instance A reaches riders on instance B.
 await sub.subscribe("positions");
 sub.on("message", (_channel, message) => {
   const { tripId } = JSON.parse(message);
-  const room = trips.get(tripId);
-  if (!room) return;
+  const room = trips.get(tripId); // only this instance's sockets for the trip
+  if (!room) return; // no local riders in this trip → nothing to do
   for (const [, socket] of room) {
     if (socket.readyState === WebSocket.OPEN) socket.send(message);
   }
