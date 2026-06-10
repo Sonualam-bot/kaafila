@@ -56,4 +56,60 @@ const median = (nums: number[]): number => {
     : (sorted[mid - 1] + sorted[mid]) / 2;
 };
 
-export { haversineDistanceMeters, median };
+/**
+ * Initial compass bearing (forward azimuth) from point 1 to point 2.
+ *
+ * "Initial" matters: along a great-circle path the bearing changes as you
+ * travel, so this is the heading you'd set off on at point 1 — not a constant
+ * course. Used to tell which direction a rider is moving relative to the group.
+ *
+ * @param lat1 - Latitude of the start point, in decimal degrees.
+ * @param lng1 - Longitude of the start point, in decimal degrees.
+ * @param lat2 - Latitude of the destination point, in decimal degrees.
+ * @param lng2 - Longitude of the destination point, in decimal degrees.
+ * @returns Bearing in degrees, normalized to [0, 360): 0 = north, 90 = east,
+ *          180 = south, 270 = west.
+ *
+ * @example
+ * bearing(0, 0, 0, 1); // 90  (due east)
+ * bearing(0, 0, 1, 0); // 0   (due north)
+ */
+const bearing = (
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number => {
+  const lat1Rad = toRadians(lat1);
+  const lat2Rad = toRadians(lat2);
+  const deltaLngRad = toRadians(lng2 - lng1);
+
+  const y = Math.sin(deltaLngRad) * Math.cos(lat2Rad);
+  const x =
+    Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+    Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(deltaLngRad);
+
+  const bearingDeg = (Math.atan2(y, x) * 180) / Math.PI;
+  return (bearingDeg + 360) % 360; // atan2 gives -180..180 → shift into 0..360
+};
+
+/**
+ * Smallest angle between two compass bearings, accounting for wraparound.
+ *
+ * Bearings live on a circle, so a naive `|a - b|` is wrong near the 0/360 seam:
+ * 350° and 10° are 20° apart, not 340°. This always returns the shorter arc.
+ *
+ * @param a - First bearing, in degrees.
+ * @param b - Second bearing, in degrees.
+ * @returns The angular separation in degrees, in [0, 180].
+ *
+ * @example
+ * angularDifference(350, 10); // 20
+ * angularDifference(0, 180);  // 180
+ */
+const angularDifference = (a: number, b: number): number => {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+};
+
+export { haversineDistanceMeters, median, bearing, angularDifference };

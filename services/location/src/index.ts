@@ -11,7 +11,12 @@ import "dotenv/config";
 import express from "express";
 import http from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
-import { haversineDistanceMeters, median } from "./utils/geo.js";
+import {
+  angularDifference,
+  bearing,
+  haversineDistanceMeters,
+  median,
+} from "./utils/geo.js";
 import { query } from "./db.js";
 import { insertPosition } from "./repositories/location.repository.js";
 import { redis, sub } from "./redis.js";
@@ -19,6 +24,7 @@ import { isTripMember } from "./clients/trip.client.js";
 
 /** A rider is "lagging" if they're more than this many metres from the group centroid. */
 const LAG_THRESHOLD_M = 500;
+const MIN_MOVE_M = 10;
 
 /**
  * Recompute a trip's group state after a position change and broadcast it to
@@ -46,16 +52,58 @@ async function evaluateTrip(tripId: string) {
   const cLat = median(positions.map((p) => p.lat));
   const cLng = median(positions.map((p) => p.lng));
 
+  /**
+   * read the previous centroid (shared, so any instance sees the same heading)
+   */
+  const prevRaw = await redis.get(`trip:${tripId}:centroid`);
+  const prev = prevRaw ? JSON.parse(prevRaw) : null;
+
+  /**
+   * travel direction = bearing from where the group's center WAS to where it is now.
+   * Only trust it if the centre actually moved more than GPS jitter - otherwise a "stationary" group produces a random heading. null = direction unknown
+   */
+
+  let travelBearing: number | null = null;
+  if (
+    prev &&
+    haversineDistanceMeters(prev.lat, prev.lng, cLat, cLng) > MIN_MOVE_M
+  ) {
+    travelBearing = bearing(prev.lat, prev.lng, cLat, cLng);
+  }
+
+  /**
+   * remember the current centre for the next time
+   */
+  await redis.set(
+    `trip:${tripId}:centroid`,
+    JSON.stringify({
+      lat: cLat,
+      lng: cLng,
+    }),
+  );
+
   const riders = positions.map((p) => {
     const distance = Math.round(
       haversineDistanceMeters(p.lat, p.lng, cLat, cLng),
     );
+
+    let status: "with-group" | "ahead" | "behind";
+    if (distance <= LAG_THRESHOLD_M) {
+      status = "with-group";
+    } else if (travelBearing === null) {
+      status = "behind";
+    } else {
+      const toRider = bearing(cLat, cLng, p.lat, p.lng);
+      status =
+        angularDifference(toRider, travelBearing) > 90 ? "behind" : "ahead";
+    }
+
     return {
       userId: p.userId,
       lat: p.lat,
       lng: p.lng,
       distance,
-      lagging: distance > LAG_THRESHOLD_M,
+      status,
     };
   });
 
@@ -168,6 +216,11 @@ wss.on("connection", async (socket, req) => {
     trips.get(tripId)?.delete(userId);
     if (trips.get(tripId)?.size === 0) {
       trips.delete(tripId); // drop empty rooms so the map can't grow forever
+      //trip is over - remove the heading key too (it has no auto-cleanup)
+      //like the positions hash does, so it would otherwise linger in Redis
+      redis
+        .del(`trip:${tripId}:centroid`)
+        .catch((e) => console.error("centroid del failed: ", e));
     }
     redis
       .hdel(`trip:${tripId}:positions`, userId)
