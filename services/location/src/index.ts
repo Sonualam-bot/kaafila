@@ -20,7 +20,7 @@ import {
 import { query } from "./db.js";
 import { insertPosition } from "./repositories/location.repository.js";
 import { redis, sub } from "./redis.js";
-import { isTripMember } from "./clients/trip.client.js";
+import { getTripAccess } from "./clients/trip.client.js";
 
 /** A rider is "lagging" if they're more than this many metres from the group centroid. */
 const LAG_THRESHOLD_M = 500;
@@ -158,13 +158,18 @@ wss.on("connection", async (socket, req) => {
     return;
   }
 
-  // 3. Authorization gate — ask the Trip service whether this rider actually
-  //    belongs to this trip (service-to-service call; fails closed). Checked
-  //    BEFORE joining the room, so an unauthorized socket never lands in
-  //    `trips` and never receives a single broadcast.
-  const allowed = await isTripMember(tripId, userId);
-  if (!allowed) {
+  // 3. Authorization gate — one service-to-service call to Trip returns both
+  //    whether this rider belongs to the trip AND the trip's status (fails
+  //    closed). Reject non-members (1008) and ended trips (4001). Checked BEFORE
+  //    joining the room, so an unauthorized socket never lands in `trips` or
+  //    receives a broadcast.
+  const access = await getTripAccess(tripId, userId);
+  if (!access.isMember) {
     socket.close(1008, "not a member of this trip");
+    return;
+  }
+  if (access.status === "ended") {
+    socket.close(4001, "trip has ended"); // same 4001 the live teardown uses
     return;
   }
 
@@ -229,17 +234,38 @@ wss.on("connection", async (socket, req) => {
   });
 });
 
-// FAN-OUT side. Every instance subscribes to the one "positions" channel.
-// evaluateTrip (on any instance) publishes a snapshot there; here we receive it
-// and relay it to THIS instance's local sockets for that trip. That's what makes
-// the broadcast cross-instance: a ping on instance A reaches riders on instance B.
-await sub.subscribe("positions");
-sub.on("message", (_channel, message) => {
-  const { tripId } = JSON.parse(message);
-  const room = trips.get(tripId); // only this instance's sockets for the trip
-  if (!room) return; // no local riders in this trip → nothing to do
-  for (const [, socket] of room) {
-    if (socket.readyState === WebSocket.OPEN) socket.send(message);
+/**
+ * Subscriber side — the only place that touches local sockets. One `sub` connection
+ * listens on two channels; branch on which one delivered the message:
+ *
+ * - `positions`  — a group snapshot published by evaluateTrip (on any instance).
+ *   Relay it to THIS instance's local sockets, which is what makes the broadcast
+ *   cross-instance (a ping on instance A reaches riders on instance B).
+ * - `trip-events` — cross-service lifecycle events from the Trip service. On
+ *   `trip-ended`, close every local socket for that trip with app code 4001; each
+ *   socket's own close handler then clears its Redis state and empties the room.
+ */
+await sub.subscribe("positions", "trip-events");
+sub.on("message", (channel, message) => {
+  if (channel === "positions") {
+    const { tripId } = JSON.parse(message);
+    const room = trips.get(tripId);
+    if (!room) return;
+    for (const [, socket] of room) {
+      if (socket.readyState === WebSocket.OPEN) socket.send(message);
+    }
+    return;
+  }
+
+  if (channel === "trip-events") {
+    const evt = JSON.parse(message);
+    if (evt.type === "trip-ended") {
+      const room = trips.get(evt.tripId);
+      if (!room) return;
+      for (const [, socket] of room) {
+        socket.close(4001, "trip ended"); // each socket's close handler clears its Redis state
+      }
+    }
   }
 });
 
