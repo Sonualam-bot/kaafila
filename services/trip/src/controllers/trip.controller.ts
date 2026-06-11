@@ -6,6 +6,9 @@ import {
   getTrip as getTripService,
   joinTrip as joinTripService,
   endTrip as endTripService,
+  startTrip as startTripService,
+  pauseTrip as pauseTripService,
+  resumeTrip as resumeTripService,
 } from "../services/trip.service.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
@@ -61,4 +64,39 @@ export const endTrip = asyncHandler(async (req: Request, res: Response) => {
   const trip = await endTripService({ tripId, userId: req.userId! });
 
   res.status(200).json(new ApiResponse(200, trip, "Trip ended"));
+});
+
+/**
+ * POST /:id/start - start a trip. The trip id comes from the route param and the requester's id from req.userId. Responds 200 with the updated trip; the service throws 404 if its missing and 403 if the requester isn't the host
+ */
+
+export const startTrip = asyncHandler(async (req: Request, res: Response) => {
+  const tripId = req.params.id as string;
+  const trip = await startTripService({ tripId, userId: req.userId! });
+
+  res.status(200).json(new ApiResponse(200, trip, "Trip started"));
+});
+
+/**
+ * POST /:id/pause — pause an in-progress trip. id from the route param,
+ * requester from req.userId. Responds 200 with the updated trip; the service
+ * throws 404 if missing, 403 if not the host, 409 if it isn't "started".
+ */
+export const pauseTrip = asyncHandler(async (req: Request, res: Response) => {
+  const tripId = req.params.id as string;
+  const trip = await pauseTripService({ tripId, userId: req.userId! });
+
+  res.status(200).json(new ApiResponse(200, trip, "Trip paused"));
+});
+
+/**
+ * POST /:id/resume — resume a paused trip. id from the route param, requester
+ * from req.userId. Responds 200 with the updated trip; the service throws 404
+ * if missing, 403 if not the host, 409 if it isn't "paused".
+ */
+export const resumeTrip = asyncHandler(async (req: Request, res: Response) => {
+  const tripId = req.params.id as string;
+  const trip = await resumeTripService({ tripId, userId: req.userId! });
+
+  res.status(200).json(new ApiResponse(200, trip, "Trip resumed"));
 });

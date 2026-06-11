@@ -11,6 +11,9 @@ import {
   getMyTrips,
   getTrip,
   joinTrip,
+  pauseTrip,
+  resumeTrip,
+  startTrip,
 } from "../controllers/trip.controller.js";
 
 const router = Router();
@@ -21,5 +24,8 @@ router.get("/", getMyTrips);
 router.get("/:id", getTrip);
 router.post("/:id/join", joinTrip);
 router.post("/:id/end", endTrip);
+router.post("/:id/start", startTrip);
+router.post("/:id/pause", pauseTrip);
+router.post("/:id/resume", resumeTrip);
 
 export { router };
