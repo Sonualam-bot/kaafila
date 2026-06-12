@@ -13,7 +13,7 @@ import { redis } from "../redis.js";
  * Legal trip status transitions: each status maps to the statuses it may move to next. This table Is the rulebook - adding a state later means editing this map, not all four service functions. Note "planned" is the DB default for a new trip (see trip.repository.createTrip), not "created".
  */
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  planned: ["started"],
+  planned: ["started", "ended"],
   started: ["paused", "ended"],
   paused: ["started", "ended"],
   ended: [],
@@ -29,7 +29,7 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
 export const assertTransition = (current: string, desired: string) => {
   const allowed = ALLOWED_TRANSITIONS[current] ?? [];
   if (!allowed.includes(desired)) {
-    throw new ApiError(409, `cannot move trip from "${current} to "${desired}`);
+    throw new ApiError(409, `cannot move trip from "${current}" to "${desired}"`);
   }
 };
 
