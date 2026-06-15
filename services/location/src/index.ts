@@ -39,6 +39,11 @@ const MIN_MOVE_M = 10;
  * directional "behind" check needs the group's travel heading.
  */
 async function evaluateTrip(tripId: string) {
+  //check for freeze
+  const key = `trip:${tripId}:status`;
+  const status = await redis.get(key);
+  if (status === "paused") return;
+
   // only riders who have actually sent a position
   const raw = await redis.hgetall(`trip:${tripId}:positions`);
   const positions = Object.entries(raw).map(([userId, v]) => {
@@ -246,7 +251,7 @@ wss.on("connection", async (socket, req) => {
  *   socket's own close handler then clears its Redis state and empties the room.
  */
 await sub.subscribe("positions", "trip-events");
-sub.on("message", (channel, message) => {
+sub.on("message", async (channel, message) => {
   if (channel === "positions") {
     const { tripId } = JSON.parse(message);
     const room = trips.get(tripId);
@@ -264,6 +269,45 @@ sub.on("message", (channel, message) => {
       if (!room) return;
       for (const [, socket] of room) {
         socket.close(4001, "trip ended"); // each socket's close handler clears its Redis state
+      }
+    }
+    if (evt.type === "trip-paused") {
+      try {
+        await redis.set(`trip:${evt.tripId}:status`, "paused");
+      } catch (error) {
+        console.error("pause action failed: ", error);
+        return;
+      }
+      const room = trips.get(evt.tripId);
+      if (!room) return;
+      for (const [, socket] of room) {
+        if (socket.readyState === WebSocket.OPEN)
+          socket.send(
+            JSON.stringify({
+              type: "trip-paused",
+              tripId: evt.tripId,
+            }),
+          );
+      }
+    }
+
+    if (evt.type === "trip-resumed") {
+      try {
+        await redis.del(`trip:${evt.tripId}:status`);
+      } catch (error) {
+        console.error("resume action failed: ", error);
+        return;
+      }
+      const room = trips.get(evt.tripId);
+      if (!room) return;
+      for (const [, socket] of room) {
+        if (socket.readyState === WebSocket.OPEN)
+          socket.send(
+            JSON.stringify({
+              type: "trip-resumed",
+              tripId: evt.tripId,
+            }),
+          );
       }
     }
   }
