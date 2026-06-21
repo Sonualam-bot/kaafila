@@ -6,8 +6,7 @@ import {
   PropsWithChildren,
 } from "react";
 import { handleLogIn } from "../http";
-import { getKey, setKey } from "../storage";
-\
+import { deleteKey, getKey, setKey } from "../storage";
 
 type AuthContextValue = {
   isLoggedIn: boolean;
@@ -31,16 +30,20 @@ export const AuthContextProvider = ({ children }: PropsWithChildren) => {
 
   const login = async (email: string, password: string) => {
     const { accessToken } = await handleLogIn(email, password);
-    await setKey( "accessToken"  ,accessToken);
+    await setKey("accessToken", accessToken);
     setIsLoggedIn(true);
   };
 
   const logout = async () => {
-    await deleteAccessToken();
+    await deleteKey("accessToken");
     setIsLoggedIn(false);
   };
 
-  const value = { isLoggedIn, login, logout };
+  const value = {
+    isLoggedIn,
+    login,
+    logout,
+  };
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 

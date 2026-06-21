@@ -1,1 +1,1 @@
-export { setKey, getKey } from "./token";
+export { setKey, getKey, deleteKey } from "./token";

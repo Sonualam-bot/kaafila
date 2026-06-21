@@ -1,16 +1,15 @@
 import { useState } from "react";
 import { Button, TextInput, View } from "react-native";
-import { handleLogIn } from "../http";
-import { setKey } from "../storage";
+import { useAuth } from "../auth/AuthContext";
 
 export const LoginScreen = () => {
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const handleUserLogIn = async () => {
     try {
-      const { accessToken } = await handleLogIn(email, password);
-      await setKey("accessToken", accessToken);
+      await login(email.trim(), password);
     } catch (error) {
       console.log(error);
     }
