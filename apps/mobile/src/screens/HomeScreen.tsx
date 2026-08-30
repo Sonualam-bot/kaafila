@@ -7,7 +7,7 @@ import { Trip } from "../types/trip";
 
 export const HomeScreen = () => {
   const { logout } = useAuth();
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const [trips, setTrips] = useState<Trip[]>([]);
 
   useFocusEffect(
