@@ -6,6 +6,7 @@ import {
   PropsWithChildren,
 } from "react";
 import { handleLogIn } from "../http";
+import { setLogoutHandler } from "../http/axios-instance";
 import { deleteKey, getKey, setKey } from "../storage";
 
 type AuthContextValue = {
@@ -19,6 +20,23 @@ export const AuthContext = createContext<AuthContextValue | null>(null);
 export const AuthContextProvider = ({ children }: PropsWithChildren) => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+  const login = async (email: string, password: string) => {
+    const { accessToken, refreshToken } = await handleLogIn(email, password);
+    await setKey("accessToken", accessToken);
+    await setKey("refreshToken", refreshToken);
+    setIsLoggedIn(true);
+  };
+
+  const logout = async () => {
+    await deleteKey("accessToken");
+    await deleteKey("refreshToken");
+    setIsLoggedIn(false);
+  };
+
+  useEffect(() => {
+    setLogoutHandler(logout);
+  }, []);
+
   // bootstrap: on mount, check if a token is already stored
   useEffect(() => {
     const loadToken = async () => {
@@ -27,17 +45,6 @@ export const AuthContextProvider = ({ children }: PropsWithChildren) => {
     };
     loadToken();
   }, []);
-
-  const login = async (email: string, password: string) => {
-    const { accessToken } = await handleLogIn(email, password);
-    await setKey("accessToken", accessToken);
-    setIsLoggedIn(true);
-  };
-
-  const logout = async () => {
-    await deleteKey("accessToken");
-    setIsLoggedIn(false);
-  };
 
   const value = {
     isLoggedIn,

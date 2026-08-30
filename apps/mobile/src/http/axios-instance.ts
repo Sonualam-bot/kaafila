@@ -2,6 +2,12 @@ import axios from "axios";
 import { API_BASE } from "./api-base";
 import { getKey } from "../storage";
 
+let logoutHandler: () => Promise<void> = async () => {};
+
+export const setLogoutHandler = (logout: () => Promise<void>) => {
+  logoutHandler = logout;
+};
+
 export const axiosInstance = axios.create({
   baseURL: `${API_BASE}:3000/`,
 });
