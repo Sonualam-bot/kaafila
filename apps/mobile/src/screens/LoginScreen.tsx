@@ -1,17 +1,32 @@
 import { useState } from "react";
-import { Button, TextInput, View } from "react-native";
+import { Button, Text, TextInput, View } from "react-native";
 import { useAuth } from "../auth/AuthContext";
+import axios from "axios";
 
 export const LoginScreen = () => {
   const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleUserLogIn = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
     try {
       await login(email.trim(), password);
-    } catch (error) {
-      console.log(error);
+    } catch (error: unknown) {
+      if (axios.isAxiosError<{ message?: string }>(error)) {
+        setError(error.response?.data?.message ?? "Login failed");
+      } else {
+        setError("Something went wrong");
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
   return (
@@ -30,7 +45,12 @@ export const LoginScreen = () => {
         onChangeText={setPassword}
         secureTextEntry
       />
-      <Button title="Submit" onPress={handleUserLogIn} />
+      <Button
+        title={isSubmitting ? "Logging in..." : "Submit"}
+        onPress={handleUserLogIn}
+        disabled={isSubmitting}
+      />
+      <Text>{error}</Text>
     </View>
   );
 };
