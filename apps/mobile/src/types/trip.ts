@@ -6,4 +6,15 @@ type Trip = {
   created_at: string;
 };
 
-export { Trip };
+type TripMember = {
+  user_id: string;
+  role: string;
+  joined_at: string;
+};
+
+type TripDetails = {
+  trip: Trip;
+  members: TripMember[];
+};
+
+export { Trip, TripDetails, TripMember };

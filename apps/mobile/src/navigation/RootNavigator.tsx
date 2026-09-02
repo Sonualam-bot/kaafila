@@ -1,7 +1,12 @@
 import { useAuth } from "../auth/AuthContext";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { HomeScreen, LoginScreen, CreateTripScreen } from "../screens";
+import {
+  HomeScreen,
+  LoginScreen,
+  CreateTripScreen,
+  TripDetailScreen,
+} from "../screens";
 
 const Stack = createNativeStackNavigator();
 
@@ -14,6 +19,7 @@ export const RootNavigator = () => {
           <>
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="CreateTrip" component={CreateTripScreen} />
+            <Stack.Screen name="TripDetail" component={TripDetailScreen} />
           </>
         ) : (
           <Stack.Screen name="Login" component={LoginScreen} />

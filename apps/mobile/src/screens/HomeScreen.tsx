@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
-import { Button, FlatList, Text, View } from "react-native";
+import { Button, FlatList, Pressable, Text, View } from "react-native";
 import { useAuth } from "../auth/AuthContext";
 import { getTrips } from "../http";
 import { Trip } from "../types/trip";
@@ -9,6 +9,10 @@ export const HomeScreen = () => {
   const { logout } = useAuth();
   const navigation = useNavigation<any>();
   const [trips, setTrips] = useState<Trip[]>([]);
+
+  const navigateToTripDetail = (tripId: string) => {
+    navigation.navigate("TripDetail", { tripId: tripId });
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -26,7 +30,11 @@ export const HomeScreen = () => {
       <FlatList
         data={trips}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <Text>{item.title}</Text>}
+        renderItem={({ item }) => (
+          <Pressable onPress={() => navigateToTripDetail(item.id)}>
+            <Text>{item.title}</Text>
+          </Pressable>
+        )}
       />
       <Button
         title="New trip"
