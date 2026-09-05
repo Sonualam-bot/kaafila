@@ -32,7 +32,15 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-secure-store"],
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Kaafila to use your location."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "2509e90d-6690-4c74-aea2-4e207bcedff7"

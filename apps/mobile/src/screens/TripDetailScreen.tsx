@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { getTrip } from "../http";
 import { TripDetails } from "../types/trip";
 import MapView, { Region } from "react-native-maps";
+import * as Location from "expo-location";
 
 type TripDetailRouteParams = {
   tripId: string;
@@ -63,6 +64,34 @@ export const TripDetailScreen = () => {
 
     fetchTripDetails();
   }, [tripId]);
+
+  useEffect(() => {
+    const centerMapOnCurrentLocation = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+
+        if (status !== "granted") {
+          setError("Location permission was denied.");
+          return;
+        }
+
+        const currentLocation = await Location.getCurrentPositionAsync({});
+        const nextRegion: Region = {
+          latitude: currentLocation.coords.latitude,
+          longitude: currentLocation.coords.longitude,
+          latitudeDelta: region.latitudeDelta,
+          longitudeDelta: region.longitudeDelta,
+        };
+
+        setRegion(nextRegion);
+        mapRef.current?.animateToRegion(nextRegion, 500);
+      } catch {
+        setError("Unable to determine your current location.");
+      }
+    };
+
+    centerMapOnCurrentLocation();
+  }, []);
 
   if (isLoading) {
     return <ActivityIndicator />;
